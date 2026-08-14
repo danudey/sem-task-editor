@@ -1,0 +1,242 @@
+# Editing Projects/orbital-relay.
+# When you close the editor, the content will be updated on nimbusworks.semaphoreci.com.
+
+apiVersion: v1alpha
+kind: Project
+metadata:
+  name: orbital-relay
+  id: 4f1c8ab2-90d7-4e35-8a61-c7d2e5940b18
+  description: Message relay for satellite ground stations
+spec:
+  visibility: public
+  repository:
+    url: git@github.com:nimbusworks/orbital-relay.git
+    run_on:
+    - branches
+    - pull_requests
+    - forked_pull_requests
+    - draft_pull_requests
+    forked_pull_requests:
+      allowed_secrets:
+      - test-db-creds
+      - llm-api-key
+      - test-github-token
+      - gcp-service-account
+      - docker-hub
+      - private-repo
+      - mesh-secrets
+      - azure-dev-ci
+      - sem-rerun-api-key
+      - semaphore-api
+      - oss-release-secrets
+      - bot-github-ssh-key
+      allowed_contributors:
+      - nimbusworks
+      - orbital-labs
+    pipeline_file: .semaphore/semaphore.yml
+    status:
+      pipeline_files:
+      - path: .semaphore/semaphore.yml
+        level: pipeline
+    whitelist:
+      branches:
+      - /^main|^release-v([3-9]|\d\d+|2\.([1-9]|\d\d+).*)|^build-v.*/
+      tags: []
+    integration_type: github_app
+  tasks:
+  - name: cut release branch
+    description: ""
+    scheduled: false
+    id: 8b3a1d64-27ce-4f10-9d55-6ae0f3c81b92
+    branch: main
+    at: ""
+    pipeline_file: .semaphore/release/cut-branch.yml
+    status: INACTIVE
+    parameters:
+    - name: PLUGIN_BRANCH
+      required: true
+      description: The plugin branch to use in the new release branch (e.g. release-v1.4)
+  - name: 'snapshot: main'
+    description: ""
+    scheduled: true
+    id: c05e7f28-4b19-4a83-bf6d-1e29d7460af5
+    branch: main
+    at: 0 0 * * 1-5
+    pipeline_file: .semaphore/release/snapshot.yml
+    status: ACTIVE
+    parameters:
+    - name: BUILD_ARTIFACTS
+      required: true
+      description: build release artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: ARCHIVE_ARTIFACTS
+      required: true
+      description: create tarballs of release artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: PUBLISH_ARTIFACTS
+      required: true
+      description: publish release artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+  - name: 'snapshot: v2.1'
+    description: ""
+    scheduled: true
+    id: 3d9b02c7-e5f4-4c68-a012-7b6d84ff31ce
+    branch: release-v2.1
+    at: 0 2 * * 1-5
+    pipeline_file: .semaphore/release/snapshot.yml
+    status: ACTIVE
+    parameters:
+    - name: BUILD_ARTIFACTS
+      required: true
+      description: Build release artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: ARCHIVE_ARTIFACTS
+      required: true
+      description: create tarballs of artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: PUBLISH_ARTIFACTS
+      required: true
+      description: publish release artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+  - name: 'snapshot: v2.2'
+    description: ""
+    scheduled: true
+    id: 71f4c8ae-6b30-49d2-8c17-05ea9db3f264
+    branch: release-v2.2
+    at: 0 3 * * 1-5
+    pipeline_file: .semaphore/release/snapshot.yml
+    status: INACTIVE
+    parameters:
+    - name: BUILD_ARTIFACTS
+      required: true
+      description: Build release artifacts?
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: ARCHIVE_ARTIFACTS
+      required: true
+      description: create tarballs of artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: PUBLISH_ARTIFACTS
+      required: true
+      description: Publish artifacts to the registry
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+  - name: 'snapshot: v2.3'
+    description: ""
+    scheduled: true
+    id: 9e2d5b13-c874-4016-bf9a-38c7e0d51f47
+    branch: release-v2.3
+    at: 30 3 * * 1-5
+    pipeline_file: .semaphore/release/snapshot.yml
+    status: ACTIVE
+    parameters:
+    - name: BUILD_ARTIFACTS
+      required: true
+      description: Build release artifacts?
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: ARCHIVE_ARTIFACTS
+      required: true
+      description: create tarball of artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: PUBLISH_ARTIFACTS
+      required: true
+      description: Publish artifacts to the registry
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+  - name: 'snapshot: v2.4'
+    description: ""
+    scheduled: true
+    id: 26a7ce90-f8b5-4d31-9207-4c1bd6e8a073
+    branch: release-v2.4
+    at: 30 2 * * 1-5
+    pipeline_file: .semaphore/release/snapshot.yml
+    status: ACTIVE
+    parameters:
+    - name: BUILD_ARTIFACTS
+      required: true
+      description: Build release artifacts?
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: ARCHIVE_ARTIFACTS
+      required: true
+      description: create tarball of artifacts
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+    - name: PUBLISH_ARTIFACTS
+      required: true
+      description: Publish artifacts to the registry
+      default_value: "true"
+      options:
+      - "true"
+      - "false"
+  - name: Nigthly full build/test
+    description: ""
+    scheduled: true
+    id: b48f0e75-1c93-42a6-8d50-e37fa9c26b81
+    branch: main
+    at: 0 4 * * *
+    pipeline_file: .semaphore/semaphore-scheduled-builds.yml
+    status: ACTIVE
+  - name: post-release
+    description: ""
+    scheduled: false
+    id: 5a6c39d8-72b1-4e07-bc84-9f0d15e3a2cf
+    branch: refs/tags/main
+    at: ""
+    pipeline_file: .semaphore/release/post-release.yml
+    status: ACTIVE
+  - name: Dependency bot update
+    description: Replaces .github/workflows/dep-bot.yml
+    scheduled: true
+    id: e7d2481b-0af6-4593-a1c8-6b7e04f9d35a
+    branch: main
+    at: 0 1 * * *
+    pipeline_file: .semaphore/dep-bot.yml
+    status: ACTIVE
+  - name: robin-sandbox-e2e
+    description: ""
+    scheduled: false
+    id: 1c8e5f30-b967-4a2d-85fb-d04a7e619c28
+    branch: robin-sandbox-e2e-pipeline
+    at: ""
+    pipeline_file: '.semaphore/end-to-end/pipelines/sandbox.yml  '
+    status: ACTIVE
+  custom_permissions: false
+

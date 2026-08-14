@@ -18,6 +18,7 @@ const (
 	stateBranchPicker
 	stateParamList
 	stateParamEditor
+	stateParamOptions
 	stateDiff
 	stateConfirmDelete
 	stateConfirmQuit
@@ -77,9 +78,17 @@ type model struct {
 
 	// Parameter editor
 	paramIdx     int                // -1 for new
-	paramInputs  [2]textinput.Model // name, description
+	paramInputs  [3]textinput.Model // name, description, default value (freeform)
 	paramReq     bool
-	paramCursor2 int // 0=name, 1=desc, 2=required
+	paramCursor2 int      // 0=name, 1=desc, 2=required, 3=default, 4=options
+	paramDefault string   // current default value (used when paramOptions is non-empty)
+	paramOptions []string // nil/empty means the default value is freeform
+
+	// Option list editor (inside the parameter editor)
+	optCursor  int
+	optIdx     int // index being edited, -1 for new
+	optEditing bool
+	optInput   textinput.Model
 
 	// Diff view
 	diffViewport viewport.Model
@@ -172,6 +181,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.paramListUpdate(msg)
 	case stateParamEditor:
 		return m.paramEditorUpdate(msg)
+	case stateParamOptions:
+		return m.paramOptionsUpdate(msg)
 	case stateDiff:
 		return m.diffUpdate(msg)
 	case stateConfirmDelete:
@@ -197,6 +208,8 @@ func (m model) View() string {
 		return m.paramListView()
 	case stateParamEditor:
 		return m.paramEditorView()
+	case stateParamOptions:
+		return m.paramOptionsView()
 	case stateDiff:
 		return m.diffViewFn()
 	case stateConfirmDelete:

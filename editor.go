@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -476,6 +477,11 @@ func (m model) paramListView() string {
 			}
 			b.WriteString(line)
 			b.WriteString("\n")
+
+			if detail := paramDetail(p); detail != "" {
+				b.WriteString(helpStyle.Render("      " + detail))
+				b.WriteString("\n")
+			}
 		}
 	}
 
@@ -487,6 +493,27 @@ func (m model) paramListView() string {
 
 // Parameter editor
 
+const (
+	pFieldName = iota
+	pFieldDesc
+	pFieldReq
+	pFieldDefault
+	pFieldOptions
+	pFieldCount
+)
+
+// paramDetail summarises the default value and options of a parameter.
+func paramDetail(p Parameter) string {
+	var parts []string
+	if p.DefaultValue != "" {
+		parts = append(parts, "default: "+p.DefaultValue)
+	}
+	if len(p.Options) > 0 {
+		parts = append(parts, "options: "+strings.Join(p.Options, ", "))
+	}
+	return strings.Join(parts, "   ")
+}
+
 func (m model) initParamEditor(idx int) model {
 	m.state = stateParamEditor
 	m.paramIdx = idx
@@ -495,11 +522,16 @@ func (m model) initParamEditor(idx int) model {
 	var name, desc string
 	var req bool
 
+	m.paramDefault = ""
+	m.paramOptions = nil
+
 	if idx >= 0 && idx < len(m.editTask.Parameters) {
 		p := m.editTask.Parameters[idx]
 		name = p.Name
 		desc = p.Description
 		req = p.Required
+		m.paramDefault = p.DefaultValue
+		m.paramOptions = append([]string(nil), p.Options...)
 	}
 
 	ti0 := textinput.New()
@@ -516,10 +548,34 @@ func (m model) initParamEditor(idx int) model {
 	ti1.SetValue(desc)
 	ti1.Blur()
 
-	m.paramInputs = [2]textinput.Model{ti0, ti1}
+	ti2 := textinput.New()
+	ti2.Placeholder = "Default value"
+	ti2.CharLimit = 200
+	ti2.Width = 40
+	ti2.SetValue(m.paramDefault)
+	ti2.Blur()
+
+	m.paramInputs = [3]textinput.Model{ti0, ti1, ti2}
 	m.paramReq = req
 
 	return m
+}
+
+// paramInputIdx maps a parameter editor field to an index in paramInputs, or
+// -1 if the field is not a text input. The default value is only a text input
+// when there are no options constraining it.
+func (m model) paramInputIdx(field int) int {
+	switch field {
+	case pFieldName:
+		return 0
+	case pFieldDesc:
+		return 1
+	case pFieldDefault:
+		if len(m.paramOptions) == 0 {
+			return 2
+		}
+	}
+	return -1
 }
 
 func (m model) paramEditorUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -531,72 +587,134 @@ func (m model) paramEditorUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+s":
-			// Save parameter
-			name := m.paramInputs[0].Value()
-			if name == "" {
-				m.errText = "Parameter name is required"
-				return m, nil
-			}
-
-			p := Parameter{
-				Name:        name,
-				Description: m.paramInputs[1].Value(),
-				Required:    m.paramReq,
-			}
-
-			if m.paramIdx == -1 {
-				m.editTask.Parameters = append(m.editTask.Parameters, p)
-			} else {
-				m.editTask.Parameters[m.paramIdx] = p
-			}
-
-			m.errText = ""
-			m.state = stateParamList
-			return m, nil
+			return m.saveParam()
 
 		case "tab", "down":
-			if m.paramCursor2 < 2 {
-				if m.paramCursor2 < 2 {
-					if m.paramCursor2 < len(m.paramInputs) {
-						m.paramInputs[m.paramCursor2].Blur()
-					}
-				}
-				m.paramCursor2++
-				if m.paramCursor2 < len(m.paramInputs) {
-					cmd := m.paramInputs[m.paramCursor2].Focus()
-					return m, cmd
-				}
-			}
-			return m, nil
+			return m.paramEditorMove(1)
 
 		case "shift+tab", "up":
-			if m.paramCursor2 > 0 {
-				if m.paramCursor2 < len(m.paramInputs) {
-					m.paramInputs[m.paramCursor2].Blur()
-				}
-				m.paramCursor2--
-				if m.paramCursor2 < len(m.paramInputs) {
-					cmd := m.paramInputs[m.paramCursor2].Focus()
-					return m, cmd
-				}
-			}
-			return m, nil
+			return m.paramEditorMove(-1)
 
-		case " ":
-			if m.paramCursor2 == 2 {
+		case "enter":
+			switch m.paramCursor2 {
+			case pFieldOptions:
+				return m.initOptionEditor(), nil
+			case pFieldReq:
 				m.paramReq = !m.paramReq
 				return m, nil
+			case pFieldDefault:
+				if len(m.paramOptions) > 0 {
+					return m.cycleDefault(1), nil
+				}
+			}
+
+		case "left", "right":
+			if m.paramCursor2 == pFieldDefault && len(m.paramOptions) > 0 {
+				delta := 1
+				if msg.String() == "left" {
+					delta = -1
+				}
+				return m.cycleDefault(delta), nil
+			}
+
+		case " ":
+			switch m.paramCursor2 {
+			case pFieldReq:
+				m.paramReq = !m.paramReq
+				return m, nil
+			case pFieldDefault:
+				if len(m.paramOptions) > 0 {
+					return m.cycleDefault(1), nil
+				}
 			}
 		}
 	}
 
 	// Update focused text input
-	if m.paramCursor2 >= 0 && m.paramCursor2 < 2 {
+	if i := m.paramInputIdx(m.paramCursor2); i >= 0 {
 		var cmd tea.Cmd
-		m.paramInputs[m.paramCursor2], cmd = m.paramInputs[m.paramCursor2].Update(msg)
+		m.paramInputs[i], cmd = m.paramInputs[i].Update(msg)
 		return m, cmd
 	}
 
+	return m, nil
+}
+
+func (m model) paramEditorMove(delta int) (tea.Model, tea.Cmd) {
+	next := m.paramCursor2 + delta
+	if next < 0 || next >= pFieldCount {
+		return m, nil
+	}
+
+	if i := m.paramInputIdx(m.paramCursor2); i >= 0 {
+		m.paramInputs[i].Blur()
+	}
+	m.paramCursor2 = next
+	if i := m.paramInputIdx(next); i >= 0 {
+		return m, m.paramInputs[i].Focus()
+	}
+	return m, nil
+}
+
+// cycleDefault steps the default value through "(unset)" and the options list.
+// Only used when options are defined.
+func (m model) cycleDefault(delta int) model {
+	choices := append([]string{""}, m.paramOptions...)
+
+	cur := 0
+	for i, c := range choices {
+		if c == m.paramDefault {
+			cur = i
+			break
+		}
+	}
+
+	cur = ((cur+delta)%len(choices) + len(choices)) % len(choices)
+	m.paramDefault = choices[cur]
+	m.errText = ""
+	return m
+}
+
+// syncDefaultFromInput copies the freeform default value input into
+// paramDefault. It is a no-op when options are defined, since then the value is
+// picked from the options instead.
+func (m model) syncDefaultFromInput() model {
+	if len(m.paramOptions) == 0 {
+		m.paramDefault = m.paramInputs[2].Value()
+	}
+	return m
+}
+
+func (m model) saveParam() (tea.Model, tea.Cmd) {
+	m = m.syncDefaultFromInput()
+
+	name := m.paramInputs[0].Value()
+	if name == "" {
+		m.errText = "Parameter name is required"
+		return m, nil
+	}
+
+	if len(m.paramOptions) > 0 && m.paramDefault != "" && !slices.Contains(m.paramOptions, m.paramDefault) {
+		m.errText = fmt.Sprintf("Default value %q is not one of the options", m.paramDefault)
+		return m, nil
+	}
+
+	p := Parameter{
+		Name:         name,
+		Description:  m.paramInputs[1].Value(),
+		Required:     m.paramReq,
+		DefaultValue: m.paramDefault,
+		Options:      append([]string(nil), m.paramOptions...),
+	}
+
+	if m.paramIdx == -1 {
+		m.editTask.Parameters = append(m.editTask.Parameters, p)
+	} else {
+		m.editTask.Parameters[m.paramIdx] = p
+	}
+
+	m.errText = ""
+	m.state = stateParamList
 	return m, nil
 }
 
@@ -616,7 +734,9 @@ func (m model) paramEditorView() string {
 	}{
 		{"Name:", m.paramInputs[0].View()},
 		{"Description:", m.paramInputs[1].View()},
-		{"Required:", renderCheckbox(m.paramReq, m.paramCursor2 == 2)},
+		{"Required:", renderCheckbox(m.paramReq, m.paramCursor2 == pFieldReq)},
+		{"Default Value:", m.renderDefaultValue()},
+		{"Options:", renderOptionsSummary(m.paramOptions, m.paramCursor2 == pFieldOptions)},
 	}
 
 	for i, f := range fields {
@@ -636,7 +756,237 @@ func (m model) paramEditorView() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(helpStyle.Render("  Tab/↑/↓: navigate  Space: toggle required  Ctrl+S: save  Esc: cancel"))
+	b.WriteString(helpStyle.Render("  Tab/↑/↓: navigate  Space: toggle/choose  Enter: manage options  Ctrl+S: save  Esc: cancel"))
+
+	return b.String()
+}
+
+func (m model) renderDefaultValue() string {
+	focused := m.paramCursor2 == pFieldDefault
+
+	if len(m.paramOptions) == 0 {
+		s := m.paramInputs[2].View()
+		if focused {
+			s += helpStyle.Render("  freeform (add options to restrict)")
+		}
+		return s
+	}
+
+	var s string
+	switch {
+	case m.paramDefault == "":
+		s = inactiveStyle.Render("(unset)")
+	case slices.Contains(m.paramOptions, m.paramDefault):
+		s = activeStyle.Render(m.paramDefault)
+	default:
+		s = errorStyle.Render(m.paramDefault + "  ✗ not one of the options")
+	}
+
+	if focused {
+		s += helpStyle.Render(fmt.Sprintf("  Space/←/→: choose (%d options)", len(m.paramOptions)))
+	}
+	return s
+}
+
+func renderOptionsSummary(options []string, focused bool) string {
+	var s string
+	if len(options) == 0 {
+		s = inactiveStyle.Render("(none — default value is freeform)")
+	} else {
+		s = strings.Join(options, ", ")
+	}
+	if focused {
+		s += helpStyle.Render("  ↵ manage")
+	}
+	return s
+}
+
+// Option list editor
+
+func (m model) initOptionEditor() model {
+	// Capture the freeform default before options take over the field.
+	m = m.syncDefaultFromInput()
+	m.state = stateParamOptions
+	m.optCursor = 0
+	m.optIdx = -1
+	m.optEditing = false
+	m.errText = ""
+	return m
+}
+
+func (m model) startOptionInput(idx int) model {
+	m.optEditing = true
+	m.optIdx = idx
+	m.errText = ""
+
+	ti := textinput.New()
+	ti.Placeholder = "Option value"
+	ti.CharLimit = 200
+	ti.Width = 40
+	if idx >= 0 && idx < len(m.paramOptions) {
+		ti.SetValue(m.paramOptions[idx])
+	}
+	ti.Focus()
+	m.optInput = ti
+
+	return m
+}
+
+func (m model) paramOptionsUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.optEditing {
+		return m.optionInputUpdate(msg)
+	}
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "q":
+			return m.closeOptionEditor()
+
+		case "up", "k":
+			if m.optCursor > 0 {
+				m.optCursor--
+			}
+
+		case "down", "j":
+			if m.optCursor < len(m.paramOptions)-1 {
+				m.optCursor++
+			}
+
+		case "a":
+			m = m.startOptionInput(-1)
+
+		case "e", "enter":
+			if len(m.paramOptions) > 0 {
+				m = m.startOptionInput(m.optCursor)
+			}
+
+		case "d":
+			if len(m.paramOptions) > 0 {
+				removed := m.paramOptions[m.optCursor]
+				m.paramOptions = append(
+					m.paramOptions[:m.optCursor],
+					m.paramOptions[m.optCursor+1:]...,
+				)
+				if m.optCursor >= len(m.paramOptions) && m.optCursor > 0 {
+					m.optCursor--
+				}
+				// The default value must stay one of the options.
+				if m.paramDefault == removed {
+					m.paramDefault = ""
+				}
+				m.errText = ""
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) optionInputUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			m.optEditing = false
+			m.errText = ""
+			return m, nil
+
+		case "enter":
+			val := m.optInput.Value()
+			if strings.TrimSpace(val) == "" {
+				m.errText = "Option value cannot be empty"
+				return m, nil
+			}
+			for i, o := range m.paramOptions {
+				if o == val && i != m.optIdx {
+					m.errText = fmt.Sprintf("Option %q already exists", val)
+					return m, nil
+				}
+			}
+
+			if m.optIdx == -1 {
+				m.paramOptions = append(m.paramOptions, val)
+				m.optCursor = len(m.paramOptions) - 1
+			} else {
+				old := m.paramOptions[m.optIdx]
+				m.paramOptions[m.optIdx] = val
+				if m.paramDefault == old {
+					m.paramDefault = val
+				}
+			}
+
+			m.optEditing = false
+			m.errText = ""
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.optInput, cmd = m.optInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) closeOptionEditor() (tea.Model, tea.Cmd) {
+	m.state = stateParamEditor
+
+	// With no options left the default value becomes a freeform field again,
+	// so push the current value back into the text input.
+	if len(m.paramOptions) == 0 {
+		m.paramInputs[2].SetValue(m.paramDefault)
+	}
+
+	if i := m.paramInputIdx(m.paramCursor2); i >= 0 {
+		return m, m.paramInputs[i].Focus()
+	}
+	return m, nil
+}
+
+func (m model) paramOptionsView() string {
+	var b strings.Builder
+
+	name := m.paramInputs[0].Value()
+	header := "Options"
+	if name != "" {
+		header = fmt.Sprintf("Options: %s", name)
+	}
+	b.WriteString(titleStyle.Render(header))
+	b.WriteString("\n")
+
+	if len(m.paramOptions) == 0 {
+		b.WriteString(helpStyle.Render("  No options — the default value is a freeform text field."))
+		b.WriteString("\n")
+	} else {
+		for i, o := range m.paramOptions {
+			line := "  " + o
+			if o == m.paramDefault {
+				line += helpStyle.Render("  (default)")
+			}
+			if i == m.optCursor && !m.optEditing {
+				line = selectedStyle.Render(line)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+
+	if m.errText != "" {
+		b.WriteString(errorStyle.Render("  " + m.errText))
+		b.WriteString("\n\n")
+	}
+
+	if m.optEditing {
+		lbl := "New option:"
+		if m.optIdx >= 0 {
+			lbl = "Edit option:"
+		}
+		b.WriteString(fmt.Sprintf("  %s %s\n\n", focusedLabelStyle.Render(lbl), m.optInput.View()))
+		b.WriteString(helpStyle.Render("  Enter: confirm  Esc: cancel"))
+	} else {
+		b.WriteString(helpStyle.Render("  a: add  e/↵: edit  d: delete  Esc: back"))
+	}
 
 	return b.String()
 }

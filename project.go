@@ -27,6 +27,12 @@ type Parameter struct {
 	Name        string `yaml:"name"`
 	Required    bool   `yaml:"required"`
 	Description string `yaml:"description"`
+	// DefaultValue is the value used when the task runs without an explicit
+	// value. If Options is non-empty it must be one of them.
+	DefaultValue string `yaml:"default_value,omitempty"`
+	// Options, when non-empty, restricts DefaultValue (and the values a user
+	// may pick when launching the task) to this list.
+	Options []string `yaml:"options,omitempty"`
 }
 
 // Project represents a Semaphore project YAML file.

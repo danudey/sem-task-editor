@@ -29,20 +29,54 @@ func normalizeRepoID(url string) string {
 	return url
 }
 
-// CheckRepository verifies the current directory is a clone of the expected repo.
-func CheckRepository(expectedURL string) error {
-	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+// getGitRemotes simply returns the list of all remote names
+func getGitRemotes() ([]string, error) {
+	out, err := exec.Command("git", "remote").Output()
 	if err != nil {
-		return fmt.Errorf("not a git repository or no 'origin' remote: %w", err)
+		return []string{}, fmt.Errorf("failed to get git remotes: %w", err)
+	}
+	gitRemotes := make([]string, 0)
+	for gitRemote := range strings.Lines(string(out)) {
+		remoteTrimmed := strings.TrimSpace(gitRemote)
+		if remoteTrimmed != "" {
+			gitRemotes = append(gitRemotes, remoteTrimmed)
+		}
 	}
 
-	actualURL := strings.TrimSpace(string(out))
-	expected := normalizeRepoID(expectedURL)
-	actual := normalizeRepoID(actualURL)
+	if len(gitRemotes) == 0 {
+		return []string{}, fmt.Errorf("No remotes found in this repository")
+	}
 
-	if expected != actual {
-		return fmt.Errorf("repository mismatch: expected %s (%s), got %s (%s)",
-			expected, expectedURL, actual, actualURL)
+	return gitRemotes, nil
+}
+
+func gitRemoteForRepoID(expectedRepoID string) (string, error) {
+	remotes, err := getGitRemotes()
+	if err != nil {
+		return "", fmt.Errorf("Could not list git remotes: %w", err)
+	}
+
+	for _, remote := range remotes {
+		out, err := exec.Command("git", "remote", "get-url", remote).Output()
+		if err != nil {
+			return "", fmt.Errorf("could not fetch url for remote %s: %w", remote, err)
+		}
+
+		repoID := normalizeRepoID(strings.TrimSpace(string(out)))
+		if repoID == expectedRepoID {
+			return remote, nil
+		}
+	}
+	return "", fmt.Errorf("no remote found with repo ID %s", expectedRepoID)
+}
+
+// CheckRepository verifies the current directory is a clone of the expected repo.
+func CheckRepository(expectedURL string) error {
+	expected := normalizeRepoID(expectedURL)
+
+	_, err := gitRemoteForRepoID(expected)
+	if err != nil {
+		return fmt.Errorf("unable to locate remote for URL %s", expectedURL)
 	}
 
 	return nil
